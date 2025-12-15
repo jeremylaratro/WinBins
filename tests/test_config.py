@@ -132,3 +132,117 @@ class TestLoadConfig:
 
         config = load_config(str(config_path))
         assert config.output_dir == "/test"
+
+
+class TestConfigYAML:
+    """Tests for YAML configuration support."""
+
+    def test_load_yaml_config(self, temp_dir):
+        """Test loading YAML configuration."""
+        # Check if pyyaml is available
+        try:
+            import yaml
+        except ImportError:
+            pytest.skip("PyYAML not installed")
+
+        config_data = """
+output_dir: /yaml/output
+build_dir: /yaml/build
+tools:
+  yaml_tool:
+    repo: https://github.com/test/yaml_tool.git
+    build_cmd:
+      - make
+    output: bin/tool
+    requires: make
+"""
+        config_path = temp_dir / "config.yaml"
+        with open(config_path, 'w') as f:
+            f.write(config_data)
+
+        config = Config(str(config_path))
+
+        assert config.output_dir == "/yaml/output"
+        assert config.build_dir == "/yaml/build"
+        assert "yaml_tool" in config.tools
+
+    def test_load_yml_extension(self, temp_dir):
+        """Test loading .yml extension."""
+        try:
+            import yaml
+        except ImportError:
+            pytest.skip("PyYAML not installed")
+
+        config_data = """
+output_dir: /yml/output
+"""
+        config_path = temp_dir / "config.yml"
+        with open(config_path, 'w') as f:
+            f.write(config_data)
+
+        config = Config(str(config_path))
+
+        assert config.output_dir == "/yml/output"
+
+    def test_save_yaml_config(self, temp_dir):
+        """Test saving YAML configuration."""
+        try:
+            import yaml
+        except ImportError:
+            pytest.skip("PyYAML not installed")
+
+        config = Config()
+        config.set("output_dir", "/saved/yaml")
+        config.set("tools.saved_tool.repo", "https://github.com/test/saved.git")
+
+        save_path = temp_dir / "saved.yaml"
+        config.save(str(save_path))
+
+        # Verify saved file
+        with open(save_path) as f:
+            saved_data = yaml.safe_load(f)
+
+        assert saved_data["output_dir"] == "/saved/yaml"
+        assert "saved_tool" in saved_data["tools"]
+
+    def test_yaml_not_installed(self, temp_dir, monkeypatch):
+        """Test error when YAML not installed."""
+        # Mock YAML_AVAILABLE as False
+        import winbins.config as config_module
+        original_yaml_available = config_module.YAML_AVAILABLE
+        monkeypatch.setattr(config_module, "YAML_AVAILABLE", False)
+
+        config_path = temp_dir / "config.yaml"
+        config_path.touch()
+
+        try:
+            with pytest.raises(ConfigError) as exc_info:
+                Config(str(config_path))
+            assert "PyYAML not installed" in str(exc_info.value)
+        finally:
+            monkeypatch.setattr(config_module, "YAML_AVAILABLE", original_yaml_available)
+
+    def test_save_yaml_not_installed(self, temp_dir, monkeypatch):
+        """Test save error when YAML not installed."""
+        import winbins.config as config_module
+        original_yaml_available = config_module.YAML_AVAILABLE
+        monkeypatch.setattr(config_module, "YAML_AVAILABLE", False)
+
+        config = Config()
+        save_path = temp_dir / "test.yaml"
+
+        try:
+            with pytest.raises(ConfigError) as exc_info:
+                config.save(str(save_path))
+            assert "PyYAML not installed" in str(exc_info.value)
+        finally:
+            monkeypatch.setattr(config_module, "YAML_AVAILABLE", original_yaml_available)
+
+    def test_save_unsupported_format(self, temp_dir):
+        """Test saving with unsupported format."""
+        config = Config()
+        save_path = temp_dir / "test.xml"
+
+        with pytest.raises(ConfigError) as exc_info:
+            config.save(str(save_path))
+        assert "Unsupported config format" in str(exc_info.value)

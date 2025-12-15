@@ -47,6 +47,47 @@ class TestBuildResult:
         assert len(result.artifacts) == 2
 
 
+class TestBuilderBase:
+    """Tests for Builder base class."""
+
+    @patch("shutil.copy2")
+    def test_copy_artifact_success(self, mock_copy, temp_dir):
+        """Test copying artifact successfully."""
+        builder = MSBuildBuilder()
+        source = temp_dir / "source.exe"
+        source.touch()
+        dest = temp_dir / "dest" / "output.exe"
+
+        result = builder.copy_artifact(source, dest)
+
+        assert result is True
+        mock_copy.assert_called_once()
+
+    @patch("shutil.copy2")
+    def test_copy_artifact_failure(self, mock_copy, temp_dir):
+        """Test copying artifact failure."""
+        mock_copy.side_effect = OSError("Copy failed")
+        builder = MSBuildBuilder()
+        source = temp_dir / "source.exe"
+        dest = temp_dir / "dest.exe"
+
+        result = builder.copy_artifact(source, dest)
+
+        assert result is False
+
+    @patch("subprocess.run")
+    def test_run_command_subprocess_error(self, mock_run):
+        """Test running command with subprocess error."""
+        import subprocess
+        mock_run.side_effect = subprocess.SubprocessError("Subprocess failed")
+        builder = MSBuildBuilder()
+
+        result = builder.run_command(["test"])
+
+        assert result.success is False
+        assert "Subprocess failed" in result.error_message
+
+
 class TestMSBuildBuilder:
     """Tests for MSBuildBuilder class."""
 
@@ -131,6 +172,88 @@ class TestMSBuildBuilder:
         assert result.success is False
         assert "not found" in result.error_message.lower()
 
+    @patch("shutil.which")
+    def test_build_not_available(self, mock_which, temp_dir):
+        """Test build when msbuild not available."""
+        mock_which.return_value = None
+        builder = MSBuildBuilder()
+
+        result = builder.build(
+            temp_dir,
+            ["msbuild", "test.sln"],
+            "bin/Release/test.exe"
+        )
+
+        assert result.success is False
+        assert "not found" in result.error_message.lower()
+
+    @patch("shutil.which")
+    @patch("subprocess.run")
+    def test_build_success(self, mock_run, mock_which, temp_dir):
+        """Test successful build."""
+        mock_which.return_value = "/usr/bin/msbuild"
+        mock_run.return_value = MagicMock(
+            returncode=0,
+            stdout="Build succeeded",
+            stderr="",
+        )
+        # Create output file
+        output_path = temp_dir / "bin" / "Release"
+        output_path.mkdir(parents=True)
+        (output_path / "test.exe").touch()
+
+        builder = MSBuildBuilder()
+        result = builder.build(
+            temp_dir,
+            ["msbuild", "test.sln"],
+            "bin/Release/test.exe"
+        )
+
+        assert result.success is True
+        assert result.output_path == temp_dir / "bin" / "Release" / "test.exe"
+
+    @patch("shutil.which")
+    @patch("subprocess.run")
+    def test_build_failure(self, mock_run, mock_which, temp_dir):
+        """Test failed build."""
+        mock_which.return_value = "/usr/bin/msbuild"
+        mock_run.return_value = MagicMock(
+            returncode=1,
+            stdout="",
+            stderr="Build failed",
+        )
+
+        builder = MSBuildBuilder()
+        result = builder.build(
+            temp_dir,
+            ["msbuild", "test.sln"],
+            "bin/Release/test.exe"
+        )
+
+        assert result.success is False
+
+    @patch("shutil.which")
+    @patch("subprocess.run")
+    def test_build_output_not_found(self, mock_run, mock_which, temp_dir):
+        """Test build when output file not found."""
+        mock_which.return_value = "/usr/bin/msbuild"
+        mock_run.return_value = MagicMock(
+            returncode=0,
+            stdout="Build succeeded",
+            stderr="",
+        )
+        # Don't create output file
+
+        builder = MSBuildBuilder()
+        result = builder.build(
+            temp_dir,
+            ["msbuild", "test.sln"],
+            "bin/Release/test.exe"
+        )
+
+        assert result.success is False
+        assert "not found" in result.error_message.lower()
+
 
 class TestDotNetBuilder:
     """Tests for DotNetBuilder class."""
@@ -185,6 +308,142 @@ class TestDotNetBuilder:
         mock_which.return_value = "/usr/bin/dotnet"
         builder = DotNetBuilder()
         assert builder.is_available() is True
+
+    @patch("shutil.which")
+    def test_build_not_available(self, mock_which, temp_dir):
+        """Test build when dotnet not available."""
+        mock_which.return_value = None
+        builder = DotNetBuilder()
+
+        result = builder.build(
+            temp_dir,
+            ["dotnet", "build", "-c", "Release"],
+            "bin/Release/net6.0/test.dll"
+        )
+
+        assert result.success is False
+        assert "not found" in result.error_message.lower()
+
+    @patch("shutil.which")
+    @patch("subprocess.run")
+    def test_build_success(self, mock_run, mock_which, temp_dir):
+        """Test successful build."""
+        mock_which.return_value = "/usr/bin/dotnet"
+        mock_run.return_value = MagicMock(
+            returncode=0,
+            stdout="Build succeeded",
+            stderr="",
+        )
+        # Create output file
+        output_path = temp_dir / "bin" / "Release" / "net6.0"
+        output_path.mkdir(parents=True)
+        (output_path / "test.dll").touch()
+
+        builder = DotNetBuilder()
+        result = builder.build(
+            temp_dir,
+            ["dotnet", "build", "-c", "Release"],
+            "bin/Release/net6.0/test.dll"
+        )
+
+        assert result.success is True
+        assert result.output_path == temp_dir / "bin" / "Release" / "net6.0" / "test.dll"
+
+    @patch("shutil.which")
+    @patch("subprocess.run")
+    def test_build_failure(self, mock_run, mock_which, temp_dir):
+        """Test failed build."""
+        mock_which.return_value = "/usr/bin/dotnet"
+        mock_run.return_value = MagicMock(
+            returncode=1,
+            stdout="",
+            stderr="Build failed",
+        )
+
+        builder = DotNetBuilder()
+        result = builder.build(
+            temp_dir,
+            ["dotnet", "build", "-c", "Release"],
+            "bin/Release/net6.0/test.dll"
+        )
+
+        assert result.success is False
+
+    @patch("shutil.which")
+    @patch("subprocess.run")
+    def test_restore(self, mock_run, mock_which, temp_dir):
+        """Test NuGet restore."""
+        mock_which.return_value = "/usr/bin/dotnet"
+        mock_run.return_value = MagicMock(
+            returncode=0,
+            stdout="Restore succeeded",
+            stderr="",
+        )
+
+        builder = DotNetBuilder()
+        result = builder.restore(temp_dir)
+
+        assert result.success is True
+        call_args = mock_run.call_args[0][0]
+        assert "restore" in call_args
+
+    @patch("shutil.which")
+    @patch("subprocess.run")
+    def test_publish(self, mock_run, mock_which, temp_dir):
+        """Test publish operation."""
+        mock_which.return_value = "/usr/bin/dotnet"
+        mock_run.return_value = MagicMock(
+            returncode=0,
+            stdout="Publish succeeded",
+            stderr="",
+        )
+        # Create output file
+        output_path = temp_dir / "bin" / "Release" / "net6.0" / "publish"
+        output_path.mkdir(parents=True)
+        (output_path / "test.dll").touch()
+
+        builder = DotNetBuilder()
+        result = builder.publish(
+            temp_dir,
+            ["dotnet", "build", "-c", "Release"],
+            "bin/Release/net6.0/publish/test.dll"
+        )
+
+        assert result.success is True
+        # Verify publish was in command
+        call_args = mock_run.call_args[0][0]
+        assert "publish" in call_args
+
+    @patch("shutil.which")
+    @patch("subprocess.run")
+    def test_publish_already_has_publish(self, mock_run, mock_which, temp_dir):
+        """Test publish when command already contains publish."""
+        mock_which.return_value = "/usr/bin/dotnet"
+        mock_run.return_value = MagicMock(
+            returncode=0,
+            stdout="Publish succeeded",
+            stderr="",
+        )
+        output_path = temp_dir / "bin" / "Release"
+        output_path.mkdir(parents=True)
+        (output_path / "test.dll").touch()
+
+        builder = DotNetBuilder()
+        result = builder.publish(
+            temp_dir,
+            ["dotnet", "publish", "-c", "Release"],
+            "bin/Release/test.dll"
+        )
+
+        assert result.success is True
+
+    def test_default_build_cmd_with_framework(self):
+        """Test build command includes framework when specified."""
+        builder = DotNetBuilder(framework="net6.0")
+        cmd = builder.get_default_build_cmd()
+
+        assert "-f" in cmd
+        assert "net6.0" in cmd
 
 
 class TestBuilderFactory:
